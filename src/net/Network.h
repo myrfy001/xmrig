@@ -24,20 +24,16 @@
 #ifndef __NETWORK_H__
 #define __NETWORK_H__
 
-
 #include <vector>
 #include <uv.h>
-
 
 #include "api/NetworkState.h"
 #include "interfaces/IJobResultListener.h"
 #include "interfaces/IStrategyListener.h"
 
-
 class IStrategy;
 class Options;
 class Url;
-
 
 class Network : public IJobResultListener, public IStrategyListener
 {
@@ -68,7 +64,8 @@ private:
   IStrategy *m_strategy;
   NetworkState m_state;
   uv_timer_t m_timer;
-};
 
+  int next_job_time = 0;
+};
 
 #endif /* __NETWORK_H__ */

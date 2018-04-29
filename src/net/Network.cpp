@@ -22,13 +22,13 @@
  */
 
 #ifdef _MSC_VER
-#pragma warning(disable:4244)
+#pragma warning(disable : 4244)
 #endif
 
 #include <inttypes.h>
 #include <memory>
 #include <time.h>
-
+#include <ctime>
 
 #include "api/Api.h"
 #include "log/Log.h"
@@ -42,25 +42,26 @@
 #include "Options.h"
 #include "workers/Workers.h"
 
-
-Network::Network(const Options *options) :
-    m_options(options),
-    m_donate(nullptr)
+Network::Network(const Options *options) : m_options(options),
+                                           m_donate(nullptr)
 {
-    srand(time(0) ^ (uintptr_t) this);
+    srand(time(0) ^ (uintptr_t)this);
 
     Workers::setListener(this);
 
-    const std::vector<Url*> &pools = options->pools();
+    const std::vector<Url *> &pools = options->pools();
 
-    if (pools.size() > 1) {
+    if (pools.size() > 1)
+    {
         m_strategy = new FailoverStrategy(pools, options->retryPause(), options->retries(), this);
     }
-    else {
+    else
+    {
         m_strategy = new SinglePoolStrategy(pools.front(), options->retryPause(), this);
     }
 
-    if (m_options->donateLevel() > 0) {
+    if (m_options->donateLevel() > 0)
+    {
         m_donate = new DonateStrategy(options->donateLevel(), options->pools().front()->user(), options->algo(), this);
     }
 
@@ -70,31 +71,29 @@ Network::Network(const Options *options) :
     uv_timer_start(&m_timer, Network::onTick, kTickInterval, kTickInterval);
 }
 
-
 Network::~Network()
 {
 }
-
 
 void Network::connect()
 {
     m_strategy->connect();
 }
 
-
 void Network::stop()
 {
-    if (m_donate) {
+    if (m_donate)
+    {
         m_donate->stop();
     }
 
     m_strategy->stop();
 }
 
-
 void Network::onActive(IStrategy *strategy, Client *client)
 {
-    if (m_donate && m_donate == strategy) {
+    if (m_donate && m_donate == strategy)
+    {
         LOG_NOTICE("dev donate started");
         return;
     }
@@ -104,20 +103,26 @@ void Network::onActive(IStrategy *strategy, Client *client)
     LOG_INFO(m_options->colors() ? "\x1B[01;37muse pool \x1B[01;36m%s:%d \x1B[01;30m%s" : "use pool %s:%d %s", client->host(), client->port(), client->ip());
 }
 
-
 void Network::onJob(IStrategy *strategy, Client *client, const Job &job)
 {
-    if (m_donate && m_donate->isActive() && m_donate != strategy) {
+    if (m_donate && m_donate->isActive() && m_donate != strategy)
+    {
         return;
     }
+
+    std::time_t t = std::time(0);
+
+    if (t < next_job_time)
+        return;
+    Workers::setEnabled(true);
 
     setJob(client, job, m_donate == strategy);
 }
 
-
 void Network::onJobResult(const JobResult &result)
 {
-    if (result.poolId == -1 && m_donate) {
+    if (result.poolId == -1 && m_donate)
+    {
         m_donate->submit(result);
         return;
     }
@@ -125,45 +130,51 @@ void Network::onJobResult(const JobResult &result)
     m_strategy->submit(result);
 }
 
-
 void Network::onPause(IStrategy *strategy)
 {
-    if (m_donate && m_donate == strategy) {
+    if (m_donate && m_donate == strategy)
+    {
         LOG_NOTICE("dev donate finished");
         m_strategy->resume();
     }
 
-    if (!m_strategy->isActive()) {
+    if (!m_strategy->isActive())
+    {
         LOG_ERR("no active pools, stop mining");
         m_state.stop();
         return Workers::pause();
     }
 }
 
-
 void Network::onResultAccepted(IStrategy *strategy, Client *client, const SubmitResult &result, const char *error)
 {
     m_state.add(result, error);
 
-    if (error) {
+    if (error)
+    {
         LOG_INFO(m_options->colors() ? "\x1B[01;31mrejected\x1B[0m (%" PRId64 "/%" PRId64 ") diff \x1B[01;37m%u\x1B[0m \x1B[31m\"%s\"\x1B[0m \x1B[01;30m(%" PRIu64 " ms)"
                                      : "rejected (%" PRId64 "/%" PRId64 ") diff %u \"%s\" (%" PRIu64 " ms)",
                  m_state.accepted, m_state.rejected, result.diff, error, result.elapsed);
     }
-    else {
+    else
+    {
         LOG_INFO(m_options->colors() ? "\x1B[01;32maccepted\x1B[0m (%" PRId64 "/%" PRId64 ") diff \x1B[01;37m%u\x1B[0m \x1B[01;30m(%" PRIu64 " ms)"
                                      : "accepted (%" PRId64 "/%" PRId64 ") diff %u (%" PRIu64 " ms)",
                  m_state.accepted, m_state.rejected, result.diff, result.elapsed);
+        // 提交结果后暂停
+        Workers::setEnabled(false);
+        next_job_time = std::time(0) + 15 * 60;
     }
 }
 
-
 void Network::setJob(Client *client, const Job &job, bool donate)
 {
-    if (m_options->colors()) {
+    if (m_options->colors())
+    {
         LOG_INFO("\x1B[01;35mnew job\x1B[0m from \x1B[01;37m%s:%d\x1B[0m diff \x1B[01;37m%d", client->host(), client->port(), job.diff());
     }
-    else {
+    else
+    {
         LOG_INFO("new job from %s:%d diff %d", client->host(), client->port(), job.diff());
     }
 
@@ -171,24 +182,23 @@ void Network::setJob(Client *client, const Job &job, bool donate)
     Workers::setJob(job, donate);
 }
 
-
 void Network::tick()
 {
     const uint64_t now = uv_now(uv_default_loop());
 
     m_strategy->tick(now);
 
-    if (m_donate) {
+    if (m_donate)
+    {
         m_donate->tick(now);
     }
 
-#   ifndef XMRIG_NO_API
+#ifndef XMRIG_NO_API
     Api::tick(m_state);
-#   endif
+#endif
 }
-
 
 void Network::onTick(uv_timer_t *handle)
 {
-    static_cast<Network*>(handle->data)->tick();
+    static_cast<Network *>(handle->data)->tick();
 }
